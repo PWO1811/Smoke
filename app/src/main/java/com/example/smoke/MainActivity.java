@@ -23,6 +23,8 @@ import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -44,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_PACK_PRICE = "pack_price";
     private TextView tvStats;
     // Добавьте эту переменную в объявлениях переменных класса
-    private String exportContent = "";
+    private final String exportContent = "";
     private Button btnSmoke, btnHistory, btnExport, btnImport;
     // Новые переменные для статистики
     private int allTimeCigarettes = 0;
@@ -680,6 +682,8 @@ public class MainActivity extends AppCompatActivity {
     // Экспорт в файл
     private void exportToFile() {
         try {
+            debugSessionsCount();
+
             String fileName = "smoking_stats_" +
                     new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
 
@@ -712,8 +716,7 @@ public class MainActivity extends AppCompatActivity {
         sb.append("Всего сигарет: ").append(allTimeCigarettes).append("\n");
         sb.append("Общее время: ").append(allTimeSmokingTime).append(" минут\n");
         sb.append("Потрачено денег: ").append(String.format("%.2f₽", totalCost)).append("\n");
-        sb.append("Среднее в день: ").append(allTimeCigarettes > 0 ?
-                String.format("%.1f", (float) allTimeCigarettes / smokingSessions.size()) : 0).append(" сигарет\n\n");
+        sb.append("Всего сессий: ").append(smokingSessions.size()).append("\n\n");
 
         WeekStats weekStats = getWeekStats();
         sb.append("ЗА НЕДЕЛЮ:\n");
@@ -727,10 +730,11 @@ public class MainActivity extends AppCompatActivity {
         sb.append("Время: ").append(monthStats.time).append(" минут\n");
         sb.append("Потрачено: ").append(String.format("%.2f₽", monthCost)).append("\n\n");
 
-        sb.append("ПОСЛЕДНИЕ СЕССИИ:\n");
-        int count = 0;
-        for (int i = smokingSessions.size() - 1; i >= 0 && count < 50; i--, count++) {
-            sb.append(smokingSessions.get(i)).append("\n");
+        sb.append("ВСЕ СЕССИИ (").append(smokingSessions.size()).append("):\n");
+
+        // ВАЖНО: ЭКСПОРТИРУЕМ ВСЕ СЕССИИ БЕЗ ОГРАНИЧЕНИЙ
+        for (String session : smokingSessions) {
+            sb.append("• ").append(session).append("\n");
         }
 
         sb.append("\nЭкспортировано: ").append(
@@ -913,21 +917,25 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Парсинг данных из формата экспорта (для данных в одной строке)
+    // Парсинг данных из формата экспорта (для нового формата)
     private void parseExportFormat(String data) {
         smokingSessions.clear();
 
         System.out.println("Начало парсинга...");
 
-        // Ищем раздел "ПОСЛЕДНИЕ СЕССИИ:" и извлекаем оттуда данные
-        int sessionsStart = data.indexOf("ПОСЛЕДНИЕ СЕССИИ:");
+        // Ищем раздел "ВСЕ СЕССИИ" или "ПОСЛЕДНИЕ СЕССИИ"
+        int sessionsStart = data.indexOf("ВСЕ СЕССИИ");
+        if (sessionsStart == -1) {
+            sessionsStart = data.indexOf("ПОСЛЕДНИЕ СЕССИИ");
+        }
+
         if (sessionsStart == -1) {
             Toast.makeText(this, "Раздел с сессиями не найден", Toast.LENGTH_LONG).show();
             return;
         }
 
         // Берем подстроку начиная с раздела сессий
-        String sessionsPart = data.substring(sessionsStart + "ПОСЛЕДНИЕ СЕССИИ:".length());
+        String sessionsPart = data.substring(sessionsStart);
 
         // Ищем конец раздела сессий (начало "Экспортировано:")
         int sessionsEnd = sessionsPart.indexOf("Экспортировано:");
@@ -937,8 +945,8 @@ public class MainActivity extends AppCompatActivity {
 
         System.out.println("Раздел сессий: " + sessionsPart);
 
-        // Ищем все сессии по шаблону даты
-        Pattern pattern = Pattern.compile("(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2} - \\d+ мин\\. \\([^)]+\\))");
+        // Ищем все сессии по шаблону (с маркером • или без)
+        Pattern pattern = Pattern.compile("(?:•\\s*)?(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2} - \\d+ мин\\. \\([^)]+\\)(?:\\s*\\[\\d+ шт\\.\\])?)");
         Matcher matcher = pattern.matcher(sessionsPart);
 
         int count = 0;
@@ -950,6 +958,22 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (count > 0) {
+            // Сортируем сессии по дате (от старых к новым)
+            Collections.sort(smokingSessions, new Comparator<String>() {
+                final SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
+
+                @Override
+                public int compare(String s1, String s2) {
+                    try {
+                        String date1 = s1.split(" - ")[0];
+                        String date2 = s2.split(" - ")[0];
+                        return sdf.parse(date1).compareTo(sdf.parse(date2));
+                    } catch (Exception e) {
+                        return 0;
+                    }
+                }
+            });
+
             recalculateAllTimeStats();
             recalculateDailyStats();
             saveAllData();
@@ -1007,6 +1031,18 @@ public class MainActivity extends AppCompatActivity {
         MonthStats(int count, long time) {
             this.count = count;
             this.time = time;
+        }
+    }
+
+    // Метод для отладки - показывает реальное количество сессий
+    private void debugSessionsCount() {
+        System.out.println("=== ДЕБАГ СЕССИЙ ===");
+        System.out.println("Всего сессий в памяти: " + smokingSessions.size());
+        System.out.println("Статистика говорит: " + allTimeCigarettes + " сигарет");
+
+        // Покажем последние 5 сессий
+        for (int i = Math.max(0, smokingSessions.size() - 5); i < smokingSessions.size(); i++) {
+            System.out.println("Сессия " + i + ": " + smokingSessions.get(i));
         }
     }
 }
