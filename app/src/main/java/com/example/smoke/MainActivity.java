@@ -1,49 +1,37 @@
 package com.example.smoke;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-
-import android.os.Handler;
-import android.content.Intent;
-import android.widget.Toast;
-
-import java.util.Calendar;
-
-import android.os.Environment;
-
-import java.io.File;
-import java.io.FileOutputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import android.view.ViewGroup;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-
-import android.widget.ArrayAdapter;
-
 public class MainActivity extends AppCompatActivity {
-
-    private TextView tvStats;
-    // Добавьте эту переменную в объявлениях переменных класса
-    private String exportContent = "";
-    private Button btnSmoke, btnHistory, btnExport, btnImport;
 
     // Ключи для сохранения данных
     private static final String PREFS_NAME = "SmokingStats";
@@ -53,16 +41,18 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_ALL_SESSIONS = "all_sessions";
     private static final String KEY_PURPOSE_LIST = "purpose_list";
     private static final String KEY_ALL_TIME_STATS = "all_time_stats";
-
+    private static final String KEY_PACK_PRICE = "pack_price";
+    private TextView tvStats;
+    // Добавьте эту переменную в объявлениях переменных класса
+    private String exportContent = "";
+    private Button btnSmoke, btnHistory, btnExport, btnImport;
     // Новые переменные для статистики
     private int allTimeCigarettes = 0;
     private long allTimeSmokingTime = 0;
-
     private int dailyCigaretteCount = 0;
     // Добавляем в переменные класса
     private float cigarettePackPrice = 0;
     private float cigarettePrice = 0;
-    private static final String KEY_PACK_PRICE = "pack_price";
     private long dailySmokingTime = 0; // в минутах
     private List<String> smokingSessions = new ArrayList<>();
     private List<String> purposeList = new ArrayList<>();
@@ -647,27 +637,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Классы для хранения статистики
-    private static class WeekStats {
-        int count;
-        long time;
-
-        WeekStats(int count, long time) {
-            this.count = count;
-            this.time = time;
-        }
-    }
-
-    private static class MonthStats {
-        int count;
-        long time;
-
-        MonthStats(int count, long time) {
-            this.count = count;
-            this.time = time;
-        }
-    }
-
     // Сохранение всех данных
     private void saveAllData() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -1018,5 +987,26 @@ public class MainActivity extends AppCompatActivity {
     private void importFromFile() {
         // Для простоты используем тот же диалог текстового импорта
         showTextImportDialog();
+    }
+
+    // Классы для хранения статистики
+    private static class WeekStats {
+        int count;
+        long time;
+
+        WeekStats(int count, long time) {
+            this.count = count;
+            this.time = time;
+        }
+    }
+
+    private static class MonthStats {
+        int count;
+        long time;
+
+        MonthStats(int count, long time) {
+            this.count = count;
+            this.time = time;
+        }
     }
 }
