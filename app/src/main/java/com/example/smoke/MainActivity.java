@@ -4,6 +4,7 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -23,12 +24,26 @@ import android.widget.Toast;
 
 import java.util.Calendar;
 
+import android.os.Environment;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import android.view.ViewGroup;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import android.widget.ArrayAdapter;
+
 public class MainActivity extends AppCompatActivity {
 
     private TextView tvStats;
     // Добавьте эту переменную в объявлениях переменных класса
     private String exportContent = "";
-    private Button btnSmoke, btnHistory;
+    private Button btnSmoke, btnHistory, btnExport, btnImport;
 
     // Ключи для сохранения данных
     private static final String PREFS_NAME = "SmokingStats";
@@ -44,6 +59,10 @@ public class MainActivity extends AppCompatActivity {
     private long allTimeSmokingTime = 0;
 
     private int dailyCigaretteCount = 0;
+    // Добавляем в переменные класса
+    private float cigarettePackPrice = 0;
+    private float cigarettePrice = 0;
+    private static final String KEY_PACK_PRICE = "pack_price";
     private long dailySmokingTime = 0; // в минутах
     private List<String> smokingSessions = new ArrayList<>();
     private List<String> purposeList = new ArrayList<>();
@@ -53,19 +72,12 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Обработчик кнопки "Экспорт"
-        Button btnExport = findViewById(R.id.btnExport);
-        btnExport.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showExportDialog();
-            }
-        });
-
         // Находим все элементы на экране
         tvStats = findViewById(R.id.tvStats);
         btnSmoke = findViewById(R.id.btnSmoke);
         btnHistory = findViewById(R.id.btnHistory);
+        btnExport = findViewById(R.id.btnExport);
+        btnImport = findViewById(R.id.btnImport); // ← ЭТА СТРОКА ДОЛЖНА БЫТЬ!
 
         // Загружаем сохраненные данные
         loadAllData();
@@ -86,6 +98,22 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // Обработчик кнопки "Экспорт"
+        btnExport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showExportDialog();
+            }
+        });
+
+        // Обработчик кнопки "Импорт" - ДОБАВЬ ЭТОТ КОД!
+        btnImport.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showImportDialog();
+            }
+        });
+
         updateStatsDisplay();
     }
 
@@ -98,6 +126,7 @@ public class MainActivity extends AppCompatActivity {
             purposeList.add("От скуки");
             purposeList.add("С компанией");
             purposeList.add("По привычке");
+            savePurposeList();
         }
 
         // Создаем диалог с выбором причины
@@ -105,6 +134,8 @@ public class MainActivity extends AppCompatActivity {
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Зачем ты куришь?");
+
+        // Простой список без кастомного адаптера
         builder.setItems(purposes, (dialog, which) -> {
             String selectedPurpose = purposeList.get(which);
             showMethodDialog(selectedPurpose);
@@ -115,8 +146,106 @@ public class MainActivity extends AppCompatActivity {
             showAddPurposeDialog();
         });
 
+        // Кнопка для управления причинами (удаление/редактирование)
+        builder.setPositiveButton("Управление причинами", (dialog, which) -> {
+            showManagePurposesDialog();
+        });
+
         builder.setNegativeButton("Отмена", null);
         builder.show();
+    }
+
+    // Диалог управления причинами
+    private void showManagePurposesDialog() {
+        if (purposeList.isEmpty()) {
+            Toast.makeText(this, "Список причин пуст", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] purposes = purposeList.toArray(new String[0]);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Управление причинами");
+        builder.setItems(purposes, (dialog, which) -> {
+            // Показываем опции для выбранной причины
+            showPurposeOptionsDialog(which);
+        });
+        builder.setPositiveButton("Добавить новую", (dialog, which) -> {
+            showAddPurposeDialog();
+        });
+        builder.setNegativeButton("Назад", (dialog, which) -> {
+            showPurposeDialog();
+        });
+        builder.show();
+    }
+
+    // Диалог опций для конкретной причины
+    private void showPurposeOptionsDialog(int position) {
+        String purpose = purposeList.get(position);
+
+        String[] options = {"Удалить", "Переименовать", "Использовать"};
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(purpose);
+        builder.setItems(options, (dialog, which) -> {
+            switch (which) {
+                case 0: // Удалить
+                    showDeletePurposeDialog(position);
+                    break;
+                case 1: // Переименовать
+                    showRenamePurposeDialog(position);
+                    break;
+                case 2: // Использовать
+                    showMethodDialog(purpose);
+                    break;
+            }
+        });
+        builder.setNegativeButton("Отмена", null);
+        builder.show();
+    }
+
+    // Диалог переименования причины
+    private void showRenamePurposeDialog(int position) {
+        String oldPurpose = purposeList.get(position);
+
+        View renameView = getLayoutInflater().inflate(R.layout.dialog_input, null);
+        EditText etInput = renameView.findViewById(R.id.etInput);
+        etInput.setText(oldPurpose);
+        etInput.setSelection(oldPurpose.length());
+
+        new AlertDialog.Builder(this)
+                .setTitle("Переименовать причину")
+                .setView(renameView)
+                .setPositiveButton("Сохранить", (dialog, which) -> {
+                    String newPurpose = etInput.getText().toString().trim();
+                    if (!newPurpose.isEmpty() && !purposeList.contains(newPurpose)) {
+                        purposeList.set(position, newPurpose);
+                        savePurposeList();
+                        Toast.makeText(this, "Причина переименована", Toast.LENGTH_SHORT).show();
+                        showManagePurposesDialog();
+                    } else {
+                        Toast.makeText(this, "Некорректное название", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    // Диалог удаления причины
+    private void showDeletePurposeDialog(int position) {
+        String purposeToDelete = purposeList.get(position);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить причину?")
+                .setMessage("Удалить \"" + purposeToDelete + "\"?")
+                .setPositiveButton("Удалить", (dialog, which) -> {
+                    purposeList.remove(position);
+                    savePurposeList();
+                    Toast.makeText(this, "Причина удалена", Toast.LENGTH_SHORT).show();
+                    showManagePurposesDialog();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
     }
 
     // Диалог добавления новой причины
@@ -175,22 +304,14 @@ public class MainActivity extends AppCompatActivity {
 
     // Диалог работающего таймера
     private void startTimerDialog(String purpose) {
-        // Создаем кастомный диалог с таймером
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-
-        // Создаем layout для таймера
         View timerView = getLayoutInflater().inflate(R.layout.dialog_timer, null);
-
         TextView tvTimer = timerView.findViewById(R.id.tvTimer);
         Button btnStop = timerView.findViewById(R.id.btnStopTimer);
 
-        // Таймер
         long[] startTime = {System.currentTimeMillis()};
-        final int[] timerInterval = {0};
-
-        // Обновляем таймер каждую секунду
-        timerInterval[0] = timerInterval[0] + 1; // Чтобы избежать дублирования переменной
         final Handler handler = new Handler();
+        final boolean[] notificationShown = {false};
+
         final Runnable timerRunnable = new Runnable() {
             @Override
             public void run() {
@@ -202,6 +323,12 @@ public class MainActivity extends AppCompatActivity {
                 String timeText = String.format("%02d:%02d", minutes, seconds);
                 tvTimer.setText(timeText);
 
+                // Показываем уведомление после 30 минут
+                if (minutes >= 30 && !notificationShown[0]) {
+                    notificationShown[0] = true;
+                    showLongSessionNotification();
+                }
+
                 handler.postDelayed(this, 1000);
             }
         };
@@ -209,44 +336,96 @@ public class MainActivity extends AppCompatActivity {
         // Запускаем таймер
         handler.postDelayed(timerRunnable, 0);
 
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setView(timerView);
         builder.setTitle("Таймер работает...");
         builder.setCancelable(false);
 
         AlertDialog timerDialog = builder.create();
 
-        // Обработчик кнопки остановки
         btnStop.setOnClickListener(v -> {
             handler.removeCallbacks(timerRunnable);
             long elapsedTime = System.currentTimeMillis() - startTime[0];
             int minutes = (int) (elapsedTime / 1000 / 60);
-            if (minutes < 1) minutes = 1; // Минимум 1 минута
+            if (minutes < 1) minutes = 1;
 
             timerDialog.dismiss();
-            completeSmokingSession(minutes, purpose);
+            showCigaretteCountDialog(minutes, purpose);
         });
 
         timerDialog.show();
     }
 
-    // Завершение сессии курения
-    private void completeSmokingSession(int minutes, String purpose) {
-        dailyCigaretteCount++;
+    // Уведомление о долгой сессии
+    private void showLongSessionNotification() {
+        new AlertDialog.Builder(this)
+                .setTitle("Всё ещё курите?")
+                .setMessage("Сессия длится более 30 минут. Не забудьте остановить таймер!")
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    // Диалог выбора количества сигарет
+    private void showCigaretteCountDialog(int minutes, String purpose) {
+        String[] options = {"Только одну", "Несколько сигарет"};
+
+        new AlertDialog.Builder(this)
+                .setTitle("Сколько сигарет выкурили?")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        completeSmokingSession(minutes, purpose, 1);
+                    } else {
+                        showMultipleCigarettesDialog(minutes, purpose);
+                    }
+                })
+                .show();
+    }
+
+    // Диалог ввода количества сигарет
+    private void showMultipleCigarettesDialog(int minutes, String purpose) {
+        View countView = getLayoutInflater().inflate(R.layout.dialog_input, null);
+        EditText etInput = countView.findViewById(R.id.etInput);
+        etInput.setHint("Количество сигарет");
+        etInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Сколько сигарет?")
+                .setView(countView)
+                .setPositiveButton("Готово", (dialog, which) -> {
+                    try {
+                        int count = Integer.parseInt(etInput.getText().toString());
+                        completeSmokingSession(minutes, purpose, count);
+                    } catch (NumberFormatException e) {
+                        completeSmokingSession(minutes, purpose, 1);
+                    }
+                })
+                .setNegativeButton("Одну", (dialog, which) -> {
+                    completeSmokingSession(minutes, purpose, 1);
+                })
+                .show();
+    }
+
+    // Обновленный метод завершения сессии
+    private void completeSmokingSession(int minutes, String purpose, int cigaretteCount) {
+        dailyCigaretteCount += cigaretteCount;
         dailySmokingTime += minutes;
 
         // Сохраняем детали сессии
         String timestamp = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date());
         String session = timestamp + " - " + minutes + " мин. (" + purpose + ")";
+        if (cigaretteCount > 1) {
+            session += " [" + cigaretteCount + " шт.]";
+        }
+
         smokingSessions.add(session);
-
-        // Пересчитываем общую статистику
         recalculateAllTimeStats();
-
         saveAllData();
         updateStatsDisplay();
 
         // Показываем подтверждение
-        String message = "Добавлено: " + minutes + " минут\nПричина: " + purpose;
+        String message = "Добавлено: " + minutes + " минут\n" +
+                "Сигарет: " + cigaretteCount + "\n" +
+                "Причина: " + purpose;
         new AlertDialog.Builder(this)
                 .setTitle("Записано!")
                 .setMessage(message)
@@ -254,42 +433,176 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    // Показ истории
+    // Старый метод для совместимости
+    private void completeSmokingSession(int minutes, String purpose) {
+        completeSmokingSession(minutes, purpose, 1);
+    }
+
+    // Показ истории с возможностью удаления
     private void showHistory() {
         if (smokingSessions.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("История").setMessage("Пока нет записей о курении").setPositiveButton("OK", null).show();
+            new AlertDialog.Builder(this)
+                    .setTitle("История")
+                    .setMessage("Пока нет записей о курении")
+                    .setPositiveButton("OK", null)
+                    .show();
             return;
         }
 
-        StringBuilder historyText = new StringBuilder();
-        historyText.append("Всего сессий: ").append(smokingSessions.size()).append("\n\n");
+        // Создаем адаптер с длинным нажатием для удаления
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, smokingSessions) {
+            @NonNull
+            @Override
+            public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+                View view = super.getView(position, convertView, parent);
+                view.setOnLongClickListener(v -> {
+                    showDeleteSessionDialog(position);
+                    return true;
+                });
+                return view;
+            }
+        };
 
-        for (String session : smokingSessions) {
-            historyText.append("• ").append(session).append("\n\n");
-        }
-
-        historyText.append("---\n").append("Всего сигарет: ").append(smokingSessions.size()).append("\n").append("Общее время: ").append(dailySmokingTime).append(" минут");
-
-        new AlertDialog.Builder(this).setTitle("Вся история").setMessage(historyText.toString()).setPositiveButton("OK", null).show();
+        new AlertDialog.Builder(this)
+                .setTitle("История (" + smokingSessions.size() + " сессий)")
+                .setAdapter(adapter, (dialog, which) -> {
+                    // Короткое нажатие - просмотр деталей
+                    showSessionDetails(which);
+                })
+                .setPositiveButton("OK", null)
+                .show();
     }
 
-    // Обновление отображения статистики
+    // Диалог удаления сессии
+    private void showDeleteSessionDialog(int position) {
+        String sessionToDelete = smokingSessions.get(position);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить сессию?")
+                .setMessage(sessionToDelete)
+                .setPositiveButton("Удалить", (dialog, which) -> {
+                    // Сохраняем данные сессии для пересчета
+                    String session = smokingSessions.get(position);
+                    int sessionCigarettes = 1;
+                    int sessionMinutes = 0;
+
+                    try {
+                        // Извлекаем количество сигарет и минут из сессии
+                        String timePart = session.split(" - ")[1];
+                        String timeStr = timePart.split(" ")[0];
+                        sessionMinutes = Integer.parseInt(timeStr);
+
+                        // Проверяем количество сигарет
+                        if (session.contains("[")) {
+                            String countStr = session.split("\\[")[1].split(" ")[0];
+                            sessionCigarettes = Integer.parseInt(countStr);
+                        }
+                    } catch (Exception e) {
+                        // Если не удалось распарсить, используем значения по умолчанию
+                        sessionCigarettes = 1;
+                        sessionMinutes = 5;
+                    }
+
+                    // Удаляем сессию
+                    smokingSessions.remove(position);
+
+                    // Пересчитываем ВСЮ статистику заново
+                    recalculateAllTimeStats();
+                    recalculateDailyStats();
+
+                    saveAllData();
+                    updateStatsDisplay();
+
+                    Toast.makeText(this, "Сессия удалена", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    // Детали сессии с возможностью редактирования
+    private void showSessionDetails(int position) {
+        String session = smokingSessions.get(position);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Детали сессии")
+                .setMessage(session + "\n\nНажмите и удерживайте для удаления")
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    // Загрузка цены сигарет
+    private void loadCigarettePrice() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        cigarettePackPrice = prefs.getFloat(KEY_PACK_PRICE, 0);
+
+        if (cigarettePackPrice == 0) {
+            showPriceSetupDialog();
+        } else {
+            cigarettePrice = cigarettePackPrice / 20; // 20 сигарет в пачке
+        }
+    }
+
+    // Диалог настройки цены
+    private void showPriceSetupDialog() {
+        View priceView = getLayoutInflater().inflate(R.layout.dialog_input, null);
+        EditText etInput = priceView.findViewById(R.id.etInput);
+        etInput.setHint("Цена пачки в рублях");
+        etInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Настройка стоимости")
+                .setMessage("Сколько стоит одна пачка сигарет?")
+                .setView(priceView)
+                .setPositiveButton("Сохранить", (dialog, which) -> {
+                    try {
+                        cigarettePackPrice = Float.parseFloat(etInput.getText().toString());
+                        cigarettePrice = cigarettePackPrice / 20;
+                        saveCigarettePrice();
+                        updateStatsDisplay();
+                    } catch (NumberFormatException e) {
+                        Toast.makeText(this, "Введите корректную цену", Toast.LENGTH_SHORT).show();
+                        showPriceSetupDialog();
+                    }
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    // Сохранение цены
+    private void saveCigarettePrice() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putFloat(KEY_PACK_PRICE, cigarettePackPrice);
+        editor.apply();
+    }
+
+    // Обновляем отображение статистики с стоимостью
     private void updateStatsDisplay() {
-        // Статистика за сегодня
-        String todayStats = "Сегодня:\n" + "Сигарет: " + dailyCigaretteCount + "\n" + "Время: " + dailySmokingTime + "м\n\n";
+        float todayCost = dailyCigaretteCount * cigarettePrice;
+        float weekCost = getWeekStats().count * cigarettePrice;
+        float monthCost = getMonthStats().count * cigarettePrice;
+        float allTimeCost = allTimeCigarettes * cigarettePrice;
 
-        // Статистика за неделю
-        WeekStats weekStats = getWeekStats();
-        String weekStatsText = "За неделю:\n" + "Сигарет: " + weekStats.count + "\n" + "Время: " + weekStats.time + "м\n\n";
+        String stats = "Сегодня:\n" +
+                "Сигарет: " + dailyCigaretteCount + "\n" +
+                "Время: " + dailySmokingTime + "м\n" +
+                "Стоимость: " + String.format("%.2f₽", todayCost) + "\n\n" +
 
-        // Статистика за месяц
-        MonthStats monthStats = getMonthStats();
-        String monthStatsText = "За месяц:\n" + "Сигарет: " + monthStats.count + "\n" + "Время: " + monthStats.time + "м\n\n";
+                "За неделю:\n" +
+                "Сигарет: " + getWeekStats().count + "\n" +
+                "Время: " + getWeekStats().time + "м\n" +
+                "Стоимость: " + String.format("%.2f₽", weekCost) + "\n\n" +
 
-        // Вся статистика
-        String allTimeStats = "Всего:\n" + "Сигарет: " + allTimeCigarettes + "\n" + "Время: " + allTimeSmokingTime + "м";
+                "За месяц:\n" +
+                "Сигарет: " + getMonthStats().count + "\n" +
+                "Время: " + getMonthStats().time + "м\n" +
+                "Стоимость: " + String.format("%.2f₽", monthCost) + "\n\n" +
 
-        String stats = todayStats + weekStatsText + monthStatsText + allTimeStats;
+                "Всего:\n" +
+                "Сигарет: " + allTimeCigarettes + "\n" +
+                "Время: " + allTimeSmokingTime + "м\n" +
+                "Стоимость: " + String.format("%.2f₽", allTimeCost);
+
         tvStats.setText(stats);
     }
 
@@ -299,15 +612,6 @@ public class MainActivity extends AppCompatActivity {
         String today = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
         String lastDate = prefs.getString(KEY_LAST_DATE, "");
 
-        // Сбрасываем дневную статистику если дата изменилась
-        if (!lastDate.equals(today)) {
-            dailyCigaretteCount = 0;
-            dailySmokingTime = 0;
-        } else {
-            dailyCigaretteCount = prefs.getInt(KEY_DAILY_COUNT, 0);
-            dailySmokingTime = prefs.getLong(KEY_DAILY_TIME, 0);
-        }
-
         // Загружаем историю сессий
         Set<String> sessionsSet = prefs.getStringSet(KEY_ALL_SESSIONS, new HashSet<>());
         smokingSessions = new ArrayList<>(sessionsSet);
@@ -316,23 +620,30 @@ public class MainActivity extends AppCompatActivity {
         Set<String> purposesSet = prefs.getStringSet(KEY_PURPOSE_LIST, new HashSet<>());
         purposeList = new ArrayList<>(purposesSet);
 
-        // Восстанавливаем общую статистику из истории
+        // Загружаем цену сигарет
+        cigarettePackPrice = prefs.getFloat(KEY_PACK_PRICE, 0);
+        if (cigarettePackPrice > 0) {
+            cigarettePrice = cigarettePackPrice / 20;
+        }
+
+        // ВСЕГДА пересчитываем статистику из истории
         recalculateAllTimeStats();
-    }
 
-    // Пересчет общей статистики из истории
-    private void recalculateAllTimeStats() {
-        allTimeCigarettes = smokingSessions.size();
-        allTimeSmokingTime = 0;
+        // Проверяем, нужно ли сбросить дневную статистику
+        if (!lastDate.equals(today)) {
+            // Новый день - сбрасываем дневную статистику
+            dailyCigaretteCount = 0;
+            dailySmokingTime = 0;
+            recalculateDailyStats(); // Но пересчитываем на случай сессий с сегодняшней датой
+        } else {
+            // Тот же день - загружаем сохраненные значения
+            dailyCigaretteCount = prefs.getInt(KEY_DAILY_COUNT, 0);
+            dailySmokingTime = prefs.getLong(KEY_DAILY_TIME, 0);
+        }
 
-        for (String session : smokingSessions) {
-            try {
-                String timePart = session.split(" - ")[1];
-                String timeStr = timePart.split(" ")[0];
-                allTimeSmokingTime += Integer.parseInt(timeStr);
-            } catch (Exception e) {
-                System.out.println("Ошибка пересчета сессии: " + session);
-            }
+        // Если цена не установлена, показываем диалог
+        if (cigarettePackPrice == 0) {
+            showPriceSetupDialog();
         }
     }
 
@@ -355,67 +666,6 @@ public class MainActivity extends AppCompatActivity {
             this.count = count;
             this.time = time;
         }
-    }
-
-    // Статистика за неделю
-    private WeekStats getWeekStats() {
-        int weekCount = 0;
-        long weekTime = 0;
-
-        SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
-        Calendar calendar = Calendar.getInstance();
-        calendar.add(Calendar.DAY_OF_YEAR, -7);
-        Date weekAgo = calendar.getTime();
-
-        for (String session : smokingSessions) {
-            try {
-                // Извлекаем дату и время из строки сессии (формат: "01.01.2024 12:30 - 5 мин. (Причина)")
-                String dateTimeStr = session.split(" - ")[0]; // "01.01.2024 12:30"
-                Date sessionDate = sdf.parse(dateTimeStr);
-
-                if (sessionDate != null && sessionDate.after(weekAgo)) {
-                    weekCount++;
-                    // Извлекаем время из сессии (формат: "5 мин.")
-                    String timePart = session.split(" - ")[1]; // "5 мин. (Причина)"
-                    String timeStr = timePart.split(" ")[0]; // "5"
-                    weekTime += Integer.parseInt(timeStr);
-                }
-            } catch (Exception e) {
-                // Если ошибка парсинга, пропускаем эту сессию
-                System.out.println("Ошибка парсинга сессии: " + session);
-            }
-        }
-
-        return new WeekStats(weekCount, weekTime);
-    }
-
-    // Статистика за месяц
-    private MonthStats getMonthStats() {
-        int monthCount = 0;
-        long monthTime = 0;
-
-        SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
-        Calendar calendar = Calendar.getInstance();
-        calendar.add(Calendar.MONTH, -1);
-        Date monthAgo = calendar.getTime();
-
-        for (String session : smokingSessions) {
-            try {
-                String dateTimeStr = session.split(" - ")[0];
-                Date sessionDate = sdf.parse(dateTimeStr);
-
-                if (sessionDate != null && sessionDate.after(monthAgo)) {
-                    monthCount++;
-                    String timePart = session.split(" - ")[1];
-                    String timeStr = timePart.split(" ")[0];
-                    monthTime += Integer.parseInt(timeStr);
-                }
-            } catch (Exception e) {
-                System.out.println("Ошибка парсинга сессии: " + session);
-            }
-        }
-
-        return new MonthStats(monthCount, monthTime);
     }
 
     // Сохранение всех данных
@@ -461,45 +711,52 @@ public class MainActivity extends AppCompatActivity {
     // Экспорт в файл
     private void exportToFile() {
         try {
-            String fileName = "smoking_stats_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
+            String fileName = "smoking_stats_" +
+                    new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".txt";
 
             String content = generateExportContent();
 
-            // Создаем intent для сохранения файла
-            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("text/plain");
-            intent.putExtra(Intent.EXTRA_TITLE, fileName);
+            // Создаем файл во внешнем хранилище
+            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            File file = new File(downloadsDir, fileName);
 
-            startActivityForResult(intent, 1);
+            FileOutputStream fos = new FileOutputStream(file);
+            fos.write(content.getBytes());
+            fos.close();
 
-            // Сохраняем содержимое во временную переменную для использования в onActivityResult
-            exportContent = content;
+            Toast.makeText(this, "Файл сохранен в Загрузки: " + fileName, Toast.LENGTH_LONG).show();
 
         } catch (Exception e) {
             Toast.makeText(this, "Ошибка экспорта: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
-    // Генерация содержимого для экспорта
     private String generateExportContent() {
         StringBuilder sb = new StringBuilder();
         sb.append("=== СТАТИСТИКА КУРЕНИЯ ===\n\n");
 
+        float totalCost = allTimeCigarettes * cigarettePrice;
+        float weekCost = getWeekStats().count * cigarettePrice;
+        float monthCost = getMonthStats().count * cigarettePrice;
+
         sb.append("ОБЩАЯ СТАТИСТИКА:\n");
         sb.append("Всего сигарет: ").append(allTimeCigarettes).append("\n");
         sb.append("Общее время: ").append(allTimeSmokingTime).append(" минут\n");
-        sb.append("Среднее в день: ").append(allTimeCigarettes > 0 ? String.format("%.1f", (float) allTimeCigarettes / smokingSessions.size()) : 0).append(" сигарет\n\n");
+        sb.append("Потрачено денег: ").append(String.format("%.2f₽", totalCost)).append("\n");
+        sb.append("Среднее в день: ").append(allTimeCigarettes > 0 ?
+                String.format("%.1f", (float) allTimeCigarettes / smokingSessions.size()) : 0).append(" сигарет\n\n");
 
         WeekStats weekStats = getWeekStats();
         sb.append("ЗА НЕДЕЛЮ:\n");
         sb.append("Сигарет: ").append(weekStats.count).append("\n");
-        sb.append("Время: ").append(weekStats.time).append(" минут\n\n");
+        sb.append("Время: ").append(weekStats.time).append(" минут\n");
+        sb.append("Потрачено: ").append(String.format("%.2f₽", weekCost)).append("\n\n");
 
         MonthStats monthStats = getMonthStats();
         sb.append("ЗА МЕСЯЦ:\n");
         sb.append("Сигарет: ").append(monthStats.count).append("\n");
-        sb.append("Время: ").append(monthStats.time).append(" минут\n\n");
+        sb.append("Время: ").append(monthStats.time).append(" минут\n");
+        sb.append("Потрачено: ").append(String.format("%.2f₽", monthCost)).append("\n\n");
 
         sb.append("ПОСЛЕДНИЕ СЕССИИ:\n");
         int count = 0;
@@ -507,7 +764,8 @@ public class MainActivity extends AppCompatActivity {
             sb.append(smokingSessions.get(i)).append("\n");
         }
 
-        sb.append("\nЭкспортировано: ").append(new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date()));
+        sb.append("\nЭкспортировано: ").append(
+                new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date()));
 
         return sb.toString();
     }
@@ -522,5 +780,243 @@ public class MainActivity extends AppCompatActivity {
         shareIntent.putExtra(Intent.EXTRA_TEXT, shareText);
 
         startActivity(Intent.createChooser(shareIntent, "Поделиться статистикой"));
+    }
+
+    // Диалог импорта данных
+    private void showImportDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Импорт данных")
+                .setMessage("Это перезапишет все текущие данные. Продолжить?")
+                .setPositiveButton("Импорт из файла", (dialog, which) -> {
+                    importFromFile();
+                })
+                .setNeutralButton("Импорт из текста", (dialog, which) -> {
+                    showTextImportDialog();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    // Полный пересчет всей статистики
+    private void recalculateAllTimeStats() {
+        allTimeCigarettes = 0;
+        allTimeSmokingTime = 0;
+
+        for (String session : smokingSessions) {
+            try {
+                int sessionCigarettes = 1;
+                int sessionMinutes = 0;
+
+                // Извлекаем время
+                String timePart = session.split(" - ")[1];
+                String timeStr = timePart.split(" ")[0];
+                sessionMinutes = Integer.parseInt(timeStr);
+
+                // Извлекаем количество сигарет (если указано)
+                if (session.contains("[")) {
+                    String countStr = session.split("\\[")[1].split(" ")[0];
+                    sessionCigarettes = Integer.parseInt(countStr);
+                }
+
+                allTimeCigarettes += sessionCigarettes;
+                allTimeSmokingTime += sessionMinutes;
+
+            } catch (Exception e) {
+                System.out.println("Ошибка пересчета сессии: " + session);
+                // Добавляем минимальные значения для поврежденных данных
+                allTimeCigarettes += 1;
+                allTimeSmokingTime += 5;
+            }
+        }
+    }
+
+    // Статистика за неделю (исправленная)
+    private WeekStats getWeekStats() {
+        int weekCount = 0;
+        long weekTime = 0;
+
+        SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.DAY_OF_YEAR, -7);
+        Date weekAgo = calendar.getTime();
+
+        for (String session : smokingSessions) {
+            try {
+                // Извлекаем дату и время из строки сессии
+                String dateTimeStr = session.split(" - ")[0];
+                Date sessionDate = sdf.parse(dateTimeStr);
+
+                if (sessionDate != null && sessionDate.after(weekAgo)) {
+                    // Извлекаем количество сигарет и время
+                    int sessionCigarettes = 1;
+                    int sessionMinutes = 0;
+
+                    String timePart = session.split(" - ")[1];
+                    String timeStr = timePart.split(" ")[0];
+                    sessionMinutes = Integer.parseInt(timeStr);
+
+                    if (session.contains("[")) {
+                        String countStr = session.split("\\[")[1].split(" ")[0];
+                        sessionCigarettes = Integer.parseInt(countStr);
+                    }
+
+                    weekCount += sessionCigarettes;
+                    weekTime += sessionMinutes;
+                }
+            } catch (Exception e) {
+                System.out.println("Ошибка расчета недельной статистики: " + session);
+            }
+        }
+
+        return new WeekStats(weekCount, weekTime);
+    }
+
+    // Статистика за месяц (исправленная)
+    private MonthStats getMonthStats() {
+        int monthCount = 0;
+        long monthTime = 0;
+
+        SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.MONTH, -1);
+        Date monthAgo = calendar.getTime();
+
+        for (String session : smokingSessions) {
+            try {
+                String dateTimeStr = session.split(" - ")[0];
+                Date sessionDate = sdf.parse(dateTimeStr);
+
+                if (sessionDate != null && sessionDate.after(monthAgo)) {
+                    int sessionCigarettes = 1;
+                    int sessionMinutes = 0;
+
+                    String timePart = session.split(" - ")[1];
+                    String timeStr = timePart.split(" ")[0];
+                    sessionMinutes = Integer.parseInt(timeStr);
+
+                    if (session.contains("[")) {
+                        String countStr = session.split("\\[")[1].split(" ")[0];
+                        sessionCigarettes = Integer.parseInt(countStr);
+                    }
+
+                    monthCount += sessionCigarettes;
+                    monthTime += sessionMinutes;
+                }
+            } catch (Exception e) {
+                System.out.println("Ошибка расчета месячной статистики: " + session);
+            }
+        }
+
+        return new MonthStats(monthCount, monthTime);
+    }
+
+    // Импорт из текста
+    private void showTextImportDialog() {
+        View importView = getLayoutInflater().inflate(R.layout.dialog_input, null);
+        EditText etInput = importView.findViewById(R.id.etInput);
+        etInput.setHint("Вставьте данные экспорта сюда");
+        etInput.setMinLines(10);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Импорт данных")
+                .setView(importView)
+                .setPositiveButton("Импортировать", (dialog, which) -> {
+                    String importText = etInput.getText().toString();
+                    processImport(importText);
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    // Обработка импортируемых данных
+    private void processImport(String importText) {
+        try {
+            if (importText.contains("=== СТАТИСТИКА КУРЕНИЯ ===")) {
+                // Парсим данные из формата экспорта
+                parseExportFormat(importText);
+                Toast.makeText(this, "Данные успешно импортированы!", Toast.LENGTH_LONG).show();
+                updateStatsDisplay();
+            } else {
+                Toast.makeText(this, "Неверный формат данных", Toast.LENGTH_LONG).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "Ошибка импорта: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // Парсинг данных из формата экспорта (для данных в одной строке)
+    private void parseExportFormat(String data) {
+        smokingSessions.clear();
+
+        System.out.println("Начало парсинга...");
+
+        // Ищем раздел "ПОСЛЕДНИЕ СЕССИИ:" и извлекаем оттуда данные
+        int sessionsStart = data.indexOf("ПОСЛЕДНИЕ СЕССИИ:");
+        if (sessionsStart == -1) {
+            Toast.makeText(this, "Раздел с сессиями не найден", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        // Берем подстроку начиная с раздела сессий
+        String sessionsPart = data.substring(sessionsStart + "ПОСЛЕДНИЕ СЕССИИ:".length());
+
+        // Ищем конец раздела сессий (начало "Экспортировано:")
+        int sessionsEnd = sessionsPart.indexOf("Экспортировано:");
+        if (sessionsEnd != -1) {
+            sessionsPart = sessionsPart.substring(0, sessionsEnd);
+        }
+
+        System.out.println("Раздел сессий: " + sessionsPart);
+
+        // Ищем все сессии по шаблону даты
+        Pattern pattern = Pattern.compile("(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2} - \\d+ мин\\. \\([^)]+\\))");
+        Matcher matcher = pattern.matcher(sessionsPart);
+
+        int count = 0;
+        while (matcher.find()) {
+            String session = matcher.group(1).trim();
+            smokingSessions.add(session);
+            count++;
+            System.out.println("Найдена сессия " + count + ": " + session);
+        }
+
+        if (count > 0) {
+            recalculateAllTimeStats();
+            recalculateDailyStats();
+            saveAllData();
+            Toast.makeText(this, "Импортировано " + count + " сессий", Toast.LENGTH_LONG).show();
+            updateStatsDisplay();
+        } else {
+            Toast.makeText(this, "Сессии не найдены. Проверь формат данных.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // Пересчет дневной статистики
+    private void recalculateDailyStats() {
+        dailyCigaretteCount = 0;
+        dailySmokingTime = 0;
+
+        String today = new SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(new Date());
+
+        for (String session : smokingSessions) {
+            try {
+                // Проверяем, сегодняшняя ли сессия
+                String sessionDate = session.split(" ")[0];
+                if (sessionDate.equals(today)) {
+                    dailyCigaretteCount++;
+                    String timePart = session.split(" - ")[1];
+                    String timeStr = timePart.split(" ")[0];
+                    dailySmokingTime += Integer.parseInt(timeStr);
+                }
+            } catch (Exception e) {
+                System.out.println("Ошибка пересчета дневной статистики: " + session);
+            }
+        }
+    }
+
+    // Импорт из файла (упрощенная версия)
+    private void importFromFile() {
+        // Для простоты используем тот же диалог текстового импорта
+        showTextImportDialog();
     }
 }

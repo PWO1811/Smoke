@@ -22,22 +22,30 @@
         android:layout_height="60dp"
         android:text="Курить"
         android:textSize="20sp"
-        android:layout_marginBottom="30dp" />
+        android:layout_marginBottom="20dp" />
 
     <Button
         android:id="@+id/btnHistory"
         android:layout_width="200dp"
-        android:layout_height="60dp"
+        android:layout_height="50dp"
         android:text="История"
-        android:textSize="16sp" />
+        android:textSize="16sp"
+        android:layout_marginBottom="10dp" />
 
-    <!-- Добавьте эту кнопку после кнопки "История" -->
     <Button
         android:id="@+id/btnExport"
         android:layout_width="200dp"
-        android:layout_height="60dp"
+        android:layout_height="50dp"
         android:text="Экспорт данных"
         android:textSize="16sp"
-        android:layout_marginTop="10dp" />
+        android:layout_marginBottom="10dp" />
+
+    <!-- ДОБАВЛЯЕМ КНОПКУ ИМПОРТА -->
+    <Button
+        android:id="@+id/btnImport"
+        android:layout_width="200dp"
+        android:layout_height="50dp"
+        android:text="Импорт данных"
+        android:textSize="16sp" />
 
 </LinearLayout>
