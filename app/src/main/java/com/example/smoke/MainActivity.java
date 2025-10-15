@@ -1,4 +1,4 @@
-package com.example.smokingtracker;
+package com.example.smoke;
 
 import android.content.SharedPreferences;
 import android.os.Bundle;
